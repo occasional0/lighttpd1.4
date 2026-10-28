@@ -1,0 +1,65 @@
+name: Build lighttpd arm64 static (SSL)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-arm64-static:
+    # 直接使用 GitHub 官方 arm64 运行器，无需交叉编译
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout lighttpd source
+        uses: actions/checkout@v4
+        with:
+          repository: lighttpd/lighttpd1.4
+          ref: lighttpd-1.4.85   # 可替换为你需要的版本
+          path: lighttpd-src
+
+      - name: Install build dependencies (静态库)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            scons \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            libpcre2-dev \
+            zlib1g-dev \
+            libbz2-dev
+
+      - name: Build lighttpd with fullstatic & OpenSSL
+        working-directory: lighttpd-src
+        run: |
+          scons -j$(nproc) \
+            build_fullstatic=1 \
+            build_dynamic=0 \
+            with_openssl=1 \
+            prefix=/tmp/lighttpd-static \
+            install
+
+      - name: Verify static & SSL support
+        run: |
+          BIN=/tmp/lighttpd-static/sbin/lighttpd
+
+          echo "=== ldd check (应为 not a dynamic executable) ==="
+          ldd "$BIN" || true
+
+          echo "=== SSL module check ==="
+          "$BIN" -V 2>&1 | grep -i -E "openssl|ssl" || true
+
+          echo "=== file info ==="
+          file "$BIN"
+
+      - name: Package binary
+        run: |
+          cd /tmp/lighttpd-static
+          tar czf lighttpd-arm64-static-ssl.tar.gz sbin/lighttpd
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighttpd-arm64-static-ssl
+          path: /tmp/lighttpd-static/lighttpd-arm64-static-ssl.tar.gz
